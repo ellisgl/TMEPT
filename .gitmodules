@@ -1,0 +1,6 @@
+[submodule "6551-ACIA"]
+	path = 6551-ACIA
+	url = https://github.com/ellisgl/6551-ACIA.git
+[submodule "6522-VIA"]
+	path = 6522-VIA
+	url = https://github.com/ellisgl/6522-VIA

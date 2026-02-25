@@ -1,0 +1,58 @@
+; TMEPT Assembler listing
+; Source: example.asm
+
+; Symbols:
+;   COUNT                    = 0x0005  (5)
+;   DMEM_BASE                = 0x0010  (16)
+;   fib_step                 = 0x0060  (96)
+;   halt                     = 0x0051  (81)
+;   main                     = 0x0000  (0)
+;   sum_loop                 = 0x0027  (39)
+
+  Addr  Bytes         Source
+------------------------------------------------------------------------
+  0000                .resetvec  0x0000
+  0000                
+  0000  08 20 88 00   
+  0003  00 A0 51 00   
+  0006                
+  0006  08 1C 77 00   
+  0009  00 9C 60 00   
+  000C                
+  000C  08 04 11 00   XOR  R1, R1, R1
+  000F  08 08 22 00   XOR  R2, R2, R2
+  0012  08 0C 33 00   XOR  R3, R3, R3
+  0015  08 10 44 00   XOR  R4, R4, R4
+  0018  08 14 55 00   XOR  R5, R5, R5
+  001B  08 18 66 00   XOR  R6, R6, R6
+  001E  00 84 05 00   ADD   R1, #COUNT
+  0021  08 0C 33 00   
+  0024  00 8C 27 00   
+  0027                
+  0027                
+  0027  00 48 21 00   ADD   R2, R1
+  002A  35 10 10 30   DJN   R1, R3
+  002E  2D 4C 32 00   MOV   R3, R2
+  0031  12 4C 30 00   INV   R3
+  0034  1D 4C 30 00   REV   R3
+  0037  00 94 01 00   ADD   R5, #1
+  003A  3D 1C         CALL  R7
+  003C  3D 1C         CALL  R7
+  003E  3D 1C         CALL  R7
+  0040  3D 1C         CALL  R7
+  0042  3D 1C         CALL  R7
+  0044  2D 58 62 00   MOV   R6, R2
+  0047  2E 00 10      LMAR  DMEM_BASE
+  004A  31 18         STOR  R6
+  004C  08 18 66 00   XOR  R6, R6, R6
+  004F  30 18         LOAD  R6
+  0051                
+  0051  26 20         JMP   R8
+  0060                
+  0060  3B 10         PUSH  R4
+  0062  00 50 45 00   ADD   R4, R5
+  0065  3C 14         POP   R5
+  0067  3B 10         PUSH  R4
+  0069  2D 50 45 00   MOV   R4, R5
+  006C  3C 14         POP   R5
+  006E  3E 00         RET

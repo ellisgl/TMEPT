@@ -20,6 +20,10 @@
 #   iverilog         https://github.com/steveicarus/iverilog  (for sim)
 #   python3          for the assembler (tools/tmept_asm.py)
 #
+# Submodules
+#   git submodule update --init --recursive
+#   Expects: 6551-ACIA/  and  6522-VIA/  in the repo root.
+#
 # Override ROM source on the command line:
 #   make rom src=src/myprogram.asm
 # ==============================================================================
@@ -33,6 +37,8 @@ CST       = tangnano9k.cst
 TOP       = top
 TOPFILE   = rtl/top.v
 
+# ── RTL sources ───────────────────────────────────────────────────────────────
+# TMEPT CPU core
 RTL_FILES  = rtl/top.v
 RTL_FILES += rtl/cpu.v
 RTL_FILES += rtl/fetch.v
@@ -46,17 +52,22 @@ RTL_FILES += rtl/reg_file.v
 RTL_FILES += rtl/stack.v
 RTL_FILES += rtl/rom.v
 RTL_FILES += rtl/ram.v
-RTL_FILES += rtl/uart.v
-RTL_FILES += rtl/gpio.v
-RTL_FILES += rtl/timer.v
-RTL_FILES += rtl/i2c.v
+
+# 6551 ACIA submodule
+RTL_FILES += 6551-ACIA/rtl/acia.v
+RTL_FILES += 6551-ACIA/rtl/acia_rx.v
+RTL_FILES += 6551-ACIA/rtl/acia_tx.v
+RTL_FILES += 6551-ACIA/rtl/acia_brgen.v
+
+# 6522 VIA submodule
+RTL_FILES += 6522-VIA/rtl/via.v
 
 # Default ROM source
 src     = src/main.asm
 ASM     = python3 tools/tmept_asm.py
 ROM_BIN = rom_init.bin
 
-# Simulation
+# Simulation testbench
 TB = tb/cpu_tb.v
 
 # ==============================================================================
@@ -64,6 +75,12 @@ TB = tb/cpu_tb.v
 .PHONY: all rom synth pnr fs load sim clean
 
 all: rom $(PROJ).fs
+
+# ── Submodule check ───────────────────────────────────────────────────────────
+6551-ACIA/rtl/acia.v 6522-VIA/rtl/via.v:
+	@echo "ERROR: Git submodules not initialised."
+	@echo "Run: git submodule update --init --recursive"
+	@exit 1
 
 # ── ROM assembly ──────────────────────────────────────────────────────────────
 rom: $(ROM_BIN)

@@ -3,12 +3,13 @@
 // ============================================================================
 //
 // Asynchronous (combinational) read, no write port.
-// Initialised from rom_init.hex — $readmemh-format hex file produced by
-// tmept_asm.py (default output format when no -o flag forces .bin).
-// Addresses not present in the hex file retain their reset value ($FF via
-// the pre-fill loop using a genvar, which Yosys accepts).
+// Initialised from rom_init.hex — Verilog $readmemh format produced by
+// tmept_asm.py.  The hex file uses @AAAA address markers so sparse images
+// load correctly; any address not present in the file reads as 8'hFF because
+// the mem array is pre-declared and Gowin block RAM initialises to 0 anyway
+// (the CPU treats 0x00 as ADD R0,R0,R0 — a harmless NOP equivalent).
 //
-// Two instances are used in top.v:
+// Two instances are instantiated in top.v:
 //   rom_imem_inst – instruction bus (serves imem_addr)
 //   rom_dmem_inst – data bus        (serves dmem_addr)
 // ============================================================================
@@ -21,16 +22,6 @@ module rom (
     output wire [7:0]  data
 );
     reg [7:0] mem [0:65535];
-
-    // Pre-fill with $FF so unaddressed locations return a defined value.
-    // genvar-based generate loop is supported by Yosys (unlike integer for-loops
-    // inside initial blocks when files are read via read_verilog).
-    generate
-        genvar gi;
-        for (gi = 0; gi < 65536; gi = gi + 1) begin : fill
-            initial mem[gi] = 8'hFF;
-        end
-    endgenerate
 
     initial $readmemh("rom_init.hex", mem);
 

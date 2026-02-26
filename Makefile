@@ -13,12 +13,12 @@
 #   make clean       Remove all build artefacts
 #
 # Prerequisites (open-source toolchain)
-#   yosys            https://github.com/YosysHQ/yosys
-#   nextpnr-gowin    https://github.com/YosysHQ/nextpnr  (with Gowin backend)
-#   gowin_pack       https://github.com/YosysHQ/apicula
-#   openFPGALoader   https://github.com/trabucayre/openFPGALoader
-#   iverilog         https://github.com/steveicarus/iverilog  (for sim)
-#   python3          for the assembler (tools/tmept_asm.py)
+#   yosys              https://github.com/YosysHQ/yosys
+#   nextpnr-himbaechel https://github.com/YosysHQ/nextpnr  (with Gowin backend)
+#   gowin_pack         https://github.com/YosysHQ/apicula
+#   openFPGALoader     https://github.com/trabucayre/openFPGALoader
+#   iverilog           https://github.com/steveicarus/iverilog  (for sim)
+#   python3            for the assembler (tools/tmept_asm.py)
 #
 # Submodules
 #   git submodule update --init --recursive
@@ -40,6 +40,8 @@ TOPFILE   = rtl/top.v
 # ── RTL sources ───────────────────────────────────────────────────────────────
 # TMEPT CPU core
 RTL_FILES  = rtl/top.v
+RTL_FILES += rtl/clock_divider.v
+RTL_FILES += rtl/reset.v
 RTL_FILES += rtl/cpu.v
 RTL_FILES += rtl/fetch.v
 RTL_FILES += rtl/execute.v
@@ -96,12 +98,12 @@ synth: $(PROJ).json
 
 # ── Place & Route ─────────────────────────────────────────────────────────────
 $(PROJ)_pnr.json: $(PROJ).json
-	nextpnr-gowin \
+	nextpnr-himbaechel \
 		--json      $(PROJ).json \
 		--write     $(PROJ)_pnr.json \
 		--device    $(DEVICE) \
-		--family    $(FAMILY) \
-		--cst       $(CST)
+		--vopt      family=$(FAMILY) \
+		--vopt      cst=$(CST)
 
 pnr: $(PROJ)_pnr.json
 

@@ -3,18 +3,13 @@
 // ============================================================================
 //
 // Tang Nano 9K  (Gowin GW1NR-LV9QN88PC6/I5)
+// Signal names must exactly match top-level port names in rtl/top.v.
 //
 // Bank voltages:
-//   Bank 0 (top    row): 3.3 V  → LVCMOS33
-//   Bank 1 (right  col): 3.3 V  → LVCMOS33
-//   Bank 2 (bottom row): 3.3 V  → LVCMOS33
-//   Bank 3 (left   col): 1.8 V  → LVCMOS18  (LEDs, reset button)
-//
-// Peripheral mapping:
-//   ACIA 6551: pins 17/18 (BL702 USB bridge) — same as TN9K-BE65C02
-//   VIA  6522: Port A → pins 25–32 (PA0=CS/38, PA1=MOSI/37, PA2=SCK/36,
-//              PA3=MISO/39 match TN9K-BE65C02 microSD SPI mapping)
-//              Port B → pins 33–40 (expansion PMOD)
+//   Bank 0 (top    row): 3.3 V
+//   Bank 1 (right  col): 3.3 V
+//   Bank 2 (bottom row): 3.3 V
+//   Bank 3 (left   col): 1.8 V  (onboard LEDs, reset button)
 // ============================================================================
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
@@ -22,83 +17,70 @@ IO_LOC  "sys_clk"  52;
 IO_PORT "sys_clk"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // ── Reset button (S1, active-low, 1.8 V bank) ─────────────────────────────────
-IO_LOC  "sys_rst_n"  4;
-IO_PORT "sys_rst_n"  IO_TYPE=LVCMOS18 PULL_MODE=UP;
+IO_LOC  "rst_n"  4;
+IO_PORT "rst_n"  IO_TYPE=LVCMOS18 PULL_MODE=UP;
 
-// ── LEDs (active-low, 1.8 V bank) ─────────────────────────────────────────────
-IO_LOC  "led[0]"  10;
-IO_PORT "led[0]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+// ── ACIA serial (3.3 V bank — BL702 USB bridge) ───────────────────────────────
+IO_LOC  "uartTx"   17;
+IO_PORT "uartTx"   IO_TYPE=LVCMOS33 DRIVE=8;
 
-IO_LOC  "led[1]"  11;
-IO_PORT "led[1]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uartRx"   18;
+IO_PORT "uartRx"   IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-IO_LOC  "led[2]"  13;
-IO_PORT "led[2]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
+IO_LOC  "uartRts"  19;
+IO_PORT "uartRts"  IO_TYPE=LVCMOS33 DRIVE=8;
 
-IO_LOC  "led[3]"  14;
-IO_PORT "led[3]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
-
-IO_LOC  "led[4]"  15;
-IO_PORT "led[4]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
-
-IO_LOC  "led[5]"  16;
-IO_PORT "led[5]"  IO_TYPE=LVCMOS18 PULL_MODE=UP DRIVE=8;
-
-// ── ACIA 6551 serial (3.3 V bank — BL702 USB bridge) ──────────────────────────
-IO_LOC  "acia_tx"  17;
-IO_PORT "acia_tx"  IO_TYPE=LVCMOS33;
-
-IO_LOC  "acia_rx"  18;
-IO_PORT "acia_rx"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "uartCts"  20;
+IO_PORT "uartCts"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // ── VIA 6522 Port A (3.3 V bank) ──────────────────────────────────────────────
-// PA0–PA3: microSD SPI (matches TN9K-BE65C02: CS=38, MOSI=37, SCK=36, MISO=39)
-// PA4–PA7: spare expansion GPIO
-IO_LOC  "via_pa[0]"  38;   // CS   (output, active-low)
-IO_PORT "via_pa[0]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+// Matches TN9K-BE65C02 microSD SPI pin mapping:
+//   PA0=CS(38)  PA1=MOSI(37)  PA2=SCK(36)  PA3=MISO(39)  PA4-7=GPIO
+IO_LOC  "PA[0]"  38;
+IO_PORT "PA[0]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[1]"  37;   // MOSI (output)
-IO_PORT "via_pa[1]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[1]"  37;
+IO_PORT "PA[1]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[2]"  36;   // SCK  (output)
-IO_PORT "via_pa[2]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[2]"  36;
+IO_PORT "PA[2]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[3]"  39;   // MISO (input)
-IO_PORT "via_pa[3]"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "PA[3]"  39;
+IO_PORT "PA[3]"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-IO_LOC  "via_pa[4]"  25;   // spare GPIO
-IO_PORT "via_pa[4]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[4]"  25;
+IO_PORT "PA[4]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[5]"  26;   // spare GPIO
-IO_PORT "via_pa[5]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[5]"  26;
+IO_PORT "PA[5]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[6]"  27;   // spare GPIO
-IO_PORT "via_pa[6]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[6]"  27;
+IO_PORT "PA[6]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pa[7]"  28;   // spare GPIO
-IO_PORT "via_pa[7]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PA[7]"  28;
+IO_PORT "PA[7]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
 // ── VIA 6522 Port B (3.3 V bank — expansion PMOD header) ─────────────────────
-IO_LOC  "via_pb[0]"  33;
-IO_PORT "via_pb[0]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[0]"  33;
+IO_PORT "PB[0]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[1]"  34;
-IO_PORT "via_pb[1]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[1]"  34;
+IO_PORT "PB[1]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[2]"  35;
-IO_PORT "via_pb[2]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[2]"  35;
+IO_PORT "PB[2]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[3]"  29;
-IO_PORT "via_pb[3]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[3]"  29;
+IO_PORT "PB[3]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[4]"  30;
-IO_PORT "via_pb[4]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[4]"  30;
+IO_PORT "PB[4]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[5]"  31;
-IO_PORT "via_pb[5]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[5]"  31;
+IO_PORT "PB[5]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[6]"  40;
-IO_PORT "via_pb[6]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[6]"  40;
+IO_PORT "PB[6]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
-IO_LOC  "via_pb[7]"  41;
-IO_PORT "via_pb[7]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "PB[7]"  41;
+IO_PORT "PB[7]"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;

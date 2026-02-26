@@ -1,243 +1,279 @@
 ; ============================================================================
-; main.asm  —  TMEPT CPU demonstration
+; main.asm  —  TMEPT CPU / Tang Nano 9K  —  6551 ACIA + 6522 VIA demo
 ; ============================================================================
-; Demonstrates: UART output, GPIO blink, Timer interrupt, I2C LCD write
 ;
 ; Hardware:
-;   UART TX → BL702 USB bridge (115200 8N1)
-;   GPIO port A[7:0] → LEDs or logic analyser
-;   I2C SDA/SCL → PCF8574 → HD44780 16×2 LCD (same as the 6502 project)
-;   Timer 1 generates a ~1 Hz IRQ at 6.75 MHz CPU clock
+;   6551 ACIA  $5000-$5003   serial UART via BL702 USB bridge
+;   6522 VIA   $6000-$600F   GPIO + Timer 1 interrupt
+;     Port A:  PA0=CS(out)  PA1=MOSI(out)  PA2=SCK(out)  PA3=MISO(in)
+;              PA4-PA7 spare outputs
+;     Port B:  PB0-PB7 outputs, driven with BLINK_CTR value
+;
+; What this does:
+;   1. Reset and configure ACIA (19200 8N1)
+;   2. Configure VIA Port A/B directions and Timer 1 free-run (~33 ms period)
+;   3. Enable Timer 1 IRQ
+;   4. Send "TMEPT CPU ready.\r\n" over serial
+;   5. Main loop: whenever IRQ increments BLINK_CTR, write it to Port B
+;
+; ── Address loading ───────────────────────────────────────────────────────────
+; LOADADDR only loads the low byte of an address (assembler limitation).
+; The LOADDR macro below loads a full 16-bit address using lo()/hi() byte
+; extraction and 8 x SOL (1-bit left shift) to position the high byte.
+; R15 is reserved as the high-byte scratch register inside LOADDR.
+; Never use R15 as the destination register for LOADDR.
 ; ============================================================================
 
-; ── Peripheral base addresses ─────────────────────────────────────────────────
-UART_BASE   = $FE00
-GPIO_BASE   = $FE10
-TIMER_BASE  = $FE20
-I2C_BASE    = $FE30
+; ── 6551 ACIA registers ───────────────────────────────────────────────────────
+ACIA_DATA   = $5000     ; [W] Transmit  /  [R] Receive
+ACIA_RST    = $5001     ; [W] Programmed reset (any write)
+ACIA_STATUS = $5002     ; [R] Status
+ACIA_CMD    = $5002     ; [W] Command  (same address, different R/W)
+ACIA_CTRL   = $5003     ; [R/W] Control
 
-; ── UART register offsets ─────────────────────────────────────────────────────
-UART_TX     = $FE00         ; [W] transmit byte
-UART_RX     = $FE01         ; [R] received byte
-UART_STAT   = $FE02         ; [R] bit0=tx_idle, bit1=rx_ready
+; Status bits
+ACIA_TDRE   = $10       ; bit4  Transmitter Data Register Empty
+ACIA_RDRF   = $08       ; bit3  Receiver Data Register Full
 
-; ── GPIO register offsets ─────────────────────────────────────────────────────
-GPIO_PA     = $FE10         ; [R/W] port A data
-GPIO_PADIR  = $FE11         ; [R/W] port A direction (1=output)
-GPIO_PB     = $FE12         ; [R/W] port B data
-GPIO_PBDIR  = $FE13         ; [R/W] port B direction
-GPIO_IFLAGS = $FE14         ; [R]   interrupt flags
-GPIO_IEN    = $FE15         ; [W]   interrupt enable
-GPIO_ICLR   = $FE16         ; [W]   interrupt clear (write 1 to clear)
+; Control register value: 19200 baud, 8 data bits, 1 stop bit
+;   bits[3:0] = 0b1111  = baud 19200 from internal baud-rate gen
+;   bit[4]    = 0       = baud-rate generator clock source
+;   bits[6:5] = 0b10    = 8 data bits
+;   bit[7]    = 0       = 1 stop bit
+ACIA_CTRL_VAL = 0b01001111
 
-; ── Timer register offsets ────────────────────────────────────────────────────
-TIMER_LO    = $FE20         ; [R/W] latch low byte
-TIMER_HI    = $FE21         ; [R/W] latch high byte  (writing arms timer)
-TIMER_CNT   = $FE22         ; [R]   current counter low byte
-TIMER_CTRL  = $FE23         ; [R/W] bit0=run, bit1=irq_en, bit2=single, bit3=clr_irq
+; Command register value: DTR active, TX enabled, no RX IRQ
+;   bits[1:0] = 0b11    = DTR active, receiver IRQ disabled
+;   bit[2]    = 0       = RTS low, no TX IRQ
+;   bit[3]    = 1       = normal TX
+;   bits[7:4] = 0b0000  = no parity
+ACIA_CMD_VAL  = 0b00001011
 
-; ── I2C register offsets ──────────────────────────────────────────────────────
-I2C_DATA    = $FE30         ; [R/W] data byte to send
-I2C_CMD     = $FE31         ; [W]   bit0=wr_byte, bit1=gen_start, bit2=gen_stop
-I2C_STAT    = $FE31         ; [R]   bit7=busy, bit6=arb_lost, bit5=nak
+; ── 6522 VIA registers ────────────────────────────────────────────────────────
+VIA_ORB     = $6000
+VIA_ORA     = $6001
+VIA_DDRB    = $6002
+VIA_DDRA    = $6003
+VIA_T1CL    = $6004     ; read clears Timer 1 IRQ flag
+VIA_T1CH    = $6005     ; write starts Timer 1
+VIA_T1LL    = $6006
+VIA_T1LH    = $6007
+VIA_ACR     = $600B
+VIA_IFR     = $600D
+VIA_IER     = $600E
 
-; ── I2C LCD (PCF8574 expander) ────────────────────────────────────────────────
-LCD_ADDR    = $27           ; PCF8574 I2C address (AD0/AD1/AD2 = 0)
-LCD_BL      = $08           ; backlight bit
-LCD_EN      = $04           ; enable strobe
-LCD_RW      = $02           ; R/W (0=write)
-LCD_RS      = $01           ; register select (0=cmd, 1=data)
+; VIA interrupt bits
+VIA_IRQ_T1  = $40       ; bit6  Timer 1
+VIA_IER_SET = $80       ; bit7 must be 1 to set IER bits
+VIA_ACR_T1FR = $40      ; ACR: Timer 1 free-run mode
 
-; ── Interrupt vector addresses ────────────────────────────────────────────────
-IRQ_VEC_LO  = $FFFA
-IRQ_VEC_HI  = $FFFB
+; Timer 1 reload for ~33 ms at 1 929 000 Hz
+;   1929000 / 30 = 64300 = $FB2C
+T1_LO       = $2C
+T1_HI       = $FB
 
-; ── Zero-page scratch ─────────────────────────────────────────────────────────
-; (TMEPT has no zero-page HW support, but $8000-$80FF is fast RAM)
-ZP          = $8000
-ZP_TMP      = $8000         ; temporary scratch byte
-ZP_BLINK    = $8001         ; blink counter (incremented by timer IRQ)
+; ── RAM scratch ───────────────────────────────────────────────────────────────
+BLINK_CTR   = $8000     ; incremented each Timer 1 IRQ
+LAST_BLINK  = $8001     ; last value seen in main loop
 
-    .org $FFFA
-    .word irq_handler       ; IRQ vector  → $FFFA/$FFFB
-    .word main              ; Reset vector → $FFFC/$FFFD
+; ── LOADDR macro ──────────────────────────────────────────────────────────────
+; Load a 16-bit address constant into register dst.
+; Clobbers R15 as high-byte scratch.  dst must NOT be R15.
+.macro LOADDR dst, addr
+    XOR   \dst, \dst, \dst
+    ADD   \dst, lo(\addr)
+    XOR   R15, R15, R15
+    ADD   R15, hi(\addr)
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    SOL   R15, R15
+    OR    \dst, \dst, R15
+.endm
 
-; ─────────────────────────────────────────────────────────────────────────────
-; Main program
-; ─────────────────────────────────────────────────────────────────────────────
-    .org $0000
+; ── Vectors ───────────────────────────────────────────────────────────────────
+    .org  $FFFA
+    .word irq_handler
+    .word main
+
+; ============================================================================
+; main
+; ============================================================================
+    .org  $0000
 
 main:
-    ; ── Zero scratch RAM ──────────────────────────────────────────────────────
-    LMAR  ZP_BLINK
+    ; ── Reset ACIA ────────────────────────────────────────────────────────────
+    LMAR  ACIA_RST
     XOR   R1, R1, R1
     STOR  R1
 
-    ; ── Configure GPIO port A as all outputs ──────────────────────────────────
-    LMAR  GPIO_PADIR
-    ADD   R1, $FF          ; R1 = 0xFF  (all outputs)
+    ; ── Configure ACIA ────────────────────────────────────────────────────────
+    LMAR  ACIA_CTRL
+    XOR   R1, R1, R1
+    ADD   R1, ACIA_CTRL_VAL
     STOR  R1
 
-    ; ── Configure GPIO port B as all inputs, enable change IRQ ───────────────
-    LMAR  GPIO_PBDIR
-    XOR   R2, R2, R2
-    STOR  R2               ; direction = 0 (all inputs)
-    LMAR  GPIO_IEN
-    ADD   R2, $02          ; enable PB change interrupt (bit 1)
-    STOR  R2
+    LMAR  ACIA_CMD
+    XOR   R1, R1, R1
+    ADD   R1, ACIA_CMD_VAL
+    STOR  R1
 
-    ; ── Set up Timer: ~1 Hz at 6.75 MHz ──────────────────────────────────────
-    ; Period = 6 750 000 counts → latch = $671F40
-    ; Latch fits in 16-bit (max $FFFF = 65535) so use prescaled value:
-    ; At 6.75 MHz, latch = 6750-1 = $1A5D for ~1 ms tick; ISR counts 1000 ticks
-    ; For simplicity here: latch = $6978 → ~0.1 s visible blink
-    LMAR  TIMER_LO
-    ADD   R3, $78          ; low byte of $6978
-    STOR  R3
-    LMAR  TIMER_HI
-    ADD   R3, $69          ; high byte; also arms the timer
-    STOR  R3
-    ; Enable timer IRQ and start running
-    LMAR  TIMER_CTRL
-    ADD   R3, $03          ; bit0=run, bit1=irq_en
-    STOR  R3
+    ; ── VIA Port A: PA0-PA2, PA4-PA7 outputs; PA3 input (MISO) ────────────────
+    ; DDRA = $F7 = 11110111
+    LMAR  VIA_DDRA
+    XOR   R1, R1, R1
+    ADD   R1, $F7
+    STOR  R1
 
-    ; ── Print banner via UART ─────────────────────────────────────────────────
-    LOADADDR  R14, banner
-    LOADADDR  R15, uart_puts
-    CALL  R15
+    ; PA0 high = CS deasserted
+    LMAR  VIA_ORA
+    XOR   R1, R1, R1
+    ADD   R1, $01
+    STOR  R1
 
-    ; ── Initialise LCD ────────────────────────────────────────────────────────
-    LOADADDR  R15, lcd_init
-    CALL  R15
+    ; ── VIA Port B: all outputs, start at 0 ───────────────────────────────────
+    LMAR  VIA_DDRB
+    XOR   R1, R1, R1
+    ADD   R1, $FF
+    STOR  R1
 
-    ; ── Write "Hello, TMEPT!" to LCD line 1 ───────────────────────────────────
-    LOADADDR  R14, msg_hello
-    LOADADDR  R15, lcd_puts
-    CALL  R15
+    LMAR  VIA_ORB
+    XOR   R1, R1, R1
+    STOR  R1
 
-    ; ── Write "UART + GPIO + I2C" to LCD line 2 ───────────────────────────────
-    ; Set cursor to row 1, col 0
-    LOADADDR  R15, lcd_set_cursor_line2
-    CALL  R15
-    LOADADDR  R14, msg_line2
-    LOADADDR  R15, lcd_puts
-    CALL  R15
+    ; ── VIA Timer 1: free-run mode ────────────────────────────────────────────
+    LMAR  VIA_ACR
+    XOR   R1, R1, R1
+    ADD   R1, VIA_ACR_T1FR
+    STOR  R1
 
-    ; ── Main loop: LED chase driven by blink counter ──────────────────────────
-    LOADADDR  R13, halt
-    LOADADDR  R12, main_loop
-    LOADADDR  R11, $8001   ; address of ZP_BLINK
-    XOR   R10, R10, R10    ; R10 = last seen blink counter
+    LMAR  VIA_T1LL
+    XOR   R1, R1, R1
+    ADD   R1, T1_LO
+    STOR  R1
 
+    LMAR  VIA_T1LH
+    XOR   R1, R1, R1
+    ADD   R1, T1_HI
+    STOR  R1
+
+    ; Write T1CH: load counter from latch and start
+    LMAR  VIA_T1CH
+    XOR   R1, R1, R1
+    ADD   R1, T1_HI
+    STOR  R1
+
+    ; ── Enable Timer 1 IRQ ────────────────────────────────────────────────────
+    LMAR  VIA_IER
+    XOR   R1, R1, R1
+    ADD   R1, VIA_IER_SET | VIA_IRQ_T1
+    STOR  R1
+
+    ; ── Initialise RAM ────────────────────────────────────────────────────────
+    LMAR  BLINK_CTR
+    XOR   R1, R1, R1
+    STOR  R1
+    LMAR  LAST_BLINK
+    STOR  R1
+
+    ; ── Send banner ───────────────────────────────────────────────────────────
+    ; R12 = char pointer   R13 = uart_tx_char address
+    LOADDR  R12, banner
+    LOADDR  R13, uart_tx_char
+
+banner_loop:
+    SMAR  R12
+    LOAD  R1                  ; R1 = byte at R12
+    LOADDR  R14, main_loop
+    JMZ   R14                 ; null terminator -> enter main loop
+    CALL  R13                 ; send byte via ACIA
+    ADD   R12, 1
+    LOADDR  R14, banner_loop
+    JMP   R14
+
+; ============================================================================
+; main_loop
+; ============================================================================
 main_loop:
-    LMAR  ZP_BLINK
-    LOAD  R9               ; R9 = current blink counter
-    CMP   R9, R10          ; changed?
-    JMZ   R8               ; R8 = ... wait, use JMZ with temp addr
-    ; (On mismatch: update LED chase pattern)
-    MOV   R10, R9          ; save new counter
-    ; Rotate R9 into GPIO_PA to make a running light
-    ROL   R9, R9           ; rotate left 1
-    LMAR  GPIO_PA
-    STOR  R9
-    JMP   R12              ; loop
+    LMAR  BLINK_CTR
+    LOAD  R2
+    LMAR  LAST_BLINK
+    LOAD  R3
+    CMP   R2, R3
+    LOADDR  R8, main_loop
+    JMZ   R8                  ; no change -> spin
 
-halt:
-    JMP   R13              ; should never reach here
+    ; Changed: save and drive Port B
+    LMAR  LAST_BLINK
+    STOR  R2
+    LMAR  VIA_ORB
+    STOR  R2
+    LOADDR  R8, main_loop
+    JMP   R8
 
-; ─────────────────────────────────────────────────────────────────────────────
-; IRQ handler — Timer blink + GPIO change notification
-; ─────────────────────────────────────────────────────────────────────────────
+; ============================================================================
+; uart_tx_char  — send one byte via ACIA
+;   Entry:  R1 = byte to send
+;   Clobbers R2, R3 (R2 saved/restored via stack)
+; ============================================================================
     .org  $0080
+
+uart_tx_char:
+    PUSH  R2
+tx_poll:
+    LMAR  ACIA_STATUS
+    LOAD  R2
+    AND   R2, ACIA_TDRE       ; 2-op immediate: R2 = R2 & $10
+    LOADDR  R3, tx_poll
+    JMZ   R3                  ; TDRE=0 -> busy, keep polling
+    LMAR  ACIA_DATA
+    STOR  R1
+    POP   R2
+    RET
+
+; ============================================================================
+; irq_handler  — services VIA Timer 1 IRQ
+;   Increments BLINK_CTR, clears T1 flag by reading VIA_T1CL.
+; ============================================================================
+    .org  $00C0
 
 irq_handler:
     PUSH  R1
     PUSH  R2
 
-    ; Check timer flag
-    LMAR  TIMER_CTRL
+    ; Check IFR for Timer 1 (bit6)
+    LMAR  VIA_IFR
     LOAD  R1
-    AND   R2, R1, $80      ; bit7 = irq_flag
-    JMZ   R5               ; ... (R5 = not set, skip)
+    MOV   R2, R1              ; copy IFR value
+    AND   R2, VIA_IRQ_T1       ; R2 = R2 & $40  (2-op immediate)
+    LOADDR  R3, irq_done
+    JMZ   R3                  ; not Timer 1 -> done
 
-    ; Clear timer IRQ
-    ADD   R1, $08          ; bit3 = clr_irq
-    STOR  R1
-
-    ; Increment blink counter
-    LMAR  ZP_BLINK
+    ; Clear Timer 1 flag: reading T1CL does it
+    LMAR  VIA_T1CL
     LOAD  R2
-    ADD   R2, 1
-    STOR  R2
 
-    ; Check GPIO flag (PB change)
-    LMAR  GPIO_IFLAGS
+    ; Increment BLINK_CTR
+    LMAR  BLINK_CTR
     LOAD  R1
-    AND   R2, R1, $02      ; bit1 = PB change
-    JMZ   R5
-
-    ; Clear GPIO IRQ
-    LMAR  GPIO_ICLR
-    ADD   R1, $02
+    ADD   R1, 1
     STOR  R1
 
-    ; TODO: handle GPIO change (PB input event)
-
+irq_done:
     POP   R2
     POP   R1
     RET
 
-; ─────────────────────────────────────────────────────────────────────────────
-; uart_puts — send null-terminated string
-;   R14 = pointer to string (address in low 8 bits of current page)
-; ─────────────────────────────────────────────────────────────────────────────
-    .org $0100
-
-uart_puts:
-    PUSH  R1
-    PUSH  R2
-    LOADADDR  R2, uart_puts_done
-
-uart_puts_loop:
-    LMAR  R14              ; not valid — TMEPT uses LMAR with imm only
-    ; NOTE: TMEPT's LOAD/STOR use MAR, not register-indirect.
-    ; To dereference a pointer: SMAR to load from register, then LOAD.
-    SMAR  R14              ; MAR = R14
-    LOAD  R1               ; R1 = *R14
-    JMZ   R2               ; if R1==0 done
-    ; Send byte via UART (poll tx_idle)
-uart_tx_wait:
-    LMAR  UART_STAT
-    LOAD  R3
-    AND   R3, 1            ; bit0 = tx_idle
-    JMZ   R4               ; R4 = uart_tx_wait... need addr
-    LMAR  UART_TX
-    STOR  R1
-    ADD   R14, 1           ; advance pointer
-    JMP   R5               ; R5 = uart_puts_loop... need addr
-uart_puts_done:
-    POP   R2
-    POP   R1
-    RET
-
-; ─────────────────────────────────────────────────────────────────────────────
-; I2C helpers and LCD driver stubs — See src/inc/1602-I2C.s
-; ─────────────────────────────────────────────────────────────────────────────
-; (Included below; these are the entry-point labels that main.asm calls)
-
-    .include "inc/1602-I2C.s"
-
-; ─────────────────────────────────────────────────────────────────────────────
+; ============================================================================
 ; String data
-; ─────────────────────────────────────────────────────────────────────────────
-    .org $0200
+; ============================================================================
+    .org  $0200
 
-banner:
-    .byte "TMEPT CPU — Tang Nano 9K", $0D, $0A, 0
-
-msg_hello:
-    .byte "Hello, TMEPT!", 0
-
-msg_line2:
-    .byte "UART+GPIO+I2C", 0
+banner:                         ; "TMEPT CPU ready.\r\n\0"
+    .byte  $54, $4D, $45, $50, $54, $20, $43, $50
+    .byte  $55, $20, $72, $65, $61, $64, $79, $2E
+    .byte  $0D, $0A, $00

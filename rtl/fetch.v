@@ -43,7 +43,8 @@
 //   - on a taken branch (pc_load_en): current accumulation is abandoned,
 //     PC is loaded, and fetch restarts from the new address next cycle
 // ============================================================================
-
+`timescale 1ns / 1ps
+`default_nettype none
 `include "rtl/decode.v"   // for opcode defines
 
 module fetch (

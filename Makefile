@@ -49,7 +49,6 @@ RTL_FILES += rtl/alu_arith.v
 RTL_FILES += rtl/alu_shift.v
 RTL_FILES += rtl/alu_bitmanip.v
 RTL_FILES += rtl/reg_file.v
-RTL_FILES += rtl/stack.v
 RTL_FILES += rtl/rom.v
 RTL_FILES += rtl/ram.v
 

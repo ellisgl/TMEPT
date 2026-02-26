@@ -1,5 +1,22 @@
 `timescale 1ns / 1ps
 `default_nettype none
+
+// ============================================================================
+// top.v  —  TMEPT CPU SoC, Tang Nano 9K
+// ============================================================================
+//
+// Memory map
+//   0x0000 – 0x3FFF   RAM   16 KB
+//   0x5000 – 0x5003   ACIA  6551  (4 registers, RS[1:0])
+//   0x6000 – 0x600F   VIA   6522  (16 registers, RS[3:0])
+//   0x8000 – 0xFFFF   ROM   32 KB  (includes reset vector at 0xFFFC/0xFFFD)
+//
+// CPU clock: sys_clk / (2 * CLK_DIVISOR)
+//   Default: 27 MHz / 14 = 1.929 MHz
+//
+// Submodule includes (resolved relative to project root by Yosys)
+// ============================================================================
+
 `include "6522-VIA/rtl/via.v"
 `include "6551-ACIA/rtl/acia.v"
 `include "rtl/clock_divider.v"
@@ -14,198 +31,185 @@
 `include "rtl/alu_bitmanip.v"
 `include "rtl/alu_shift.v"
 `include "rtl/alu.v"
+`include "rtl/cpu.v"
 
 module top #(
-    parameter integer SYS_CLK_HZ  = 27_000_000, // Input oscillator frequency
-    parameter integer CLK_DIVISOR = 7           // Divides sys_clk; clk = sys_clk / (2 * DIVISOR)
+    parameter integer SYS_CLK_HZ  = 27_000_000,
+    parameter integer CLK_DIVISOR = 7           // cpu_clk = sys_clk / (2 * CLK_DIVISOR) ≈ 1.929 MHz
 )(
     input  wire       sys_clk,
-    input  wire       rst_n,
+    input  wire       rst_n,       // active-low reset (board button)
+
+    // ACIA serial (BL702 USB bridge)
     input  wire       uartRx,
     input  wire       uartCts,
     output wire       uartTx,
     output wire       uartRts,
-    inout  wire [7:0] PB,        // VIA6522 Port B
-    inout  wire [7:0] PA         // VIA6522 Port A 0 = SD CS, 1 = SD MOSI, 2 = SD CLK, 3 = SD MISO, 4-7 = GPIO
+
+    // VIA 6522 Port B — expansion GPIO
+    inout  wire [7:0] PB,
+
+    // VIA 6522 Port A — PA0=CS PA1=MOSI PA2=SCK PA3=MISO PA4-7=GPIO
+    inout  wire [7:0] PA
 );
 
-    // $6001
-    // Connect CS   to PA4 (6522 pin 5) > PA0 (6522 pin 1)
-    // Connect SCK  to PA3 (6522 pin 4) > PA2 (6522 pin 3)
-    // Connect MOSI to PA2 (6522 pin 3) > PA1 (6522 pin 2)
-    // Connect MISO to PA1 (6522 pin 2) > PA3 (6522 pin 4)
-    localparam  integer CPU_HZ = SYS_CLK_HZ / (2 * CLK_DIVISOR);
+    localparam integer CPU_HZ = SYS_CLK_HZ / (2 * CLK_DIVISOR);
 
-    wire        clk;  // Divided clock, about 1.929 MHz with DIVISOR=7 from 27 MHz input
-    wire        reset;
-    reg  [15:0] address;
-    wire [15:0] address_unregistered;
-    wire        cpu_we;
-    wire        cpu_rdy = 1'b1;
-    wire  [7:0] cpu_di;
-    wire  [7:0] cpu_do;
-    wire        cpu_irq;
-    wire        via_cs;
-    wire        rom_cs;
-    wire        ram_cs;
-    wire        uart_cs;
-    wire  [7:0] via_do;
-    wire        via_irq_n;
-    wire        uart_irq_n;
-    wire  [7:0] rom_do;
-    wire  [7:0] ram_do;
-    wire  [7:0] uart_do;
+    // ── Clocks and reset ──────────────────────────────────────────────────────
+    wire clk;       // divided CPU clock
+    wire reset;     // active-high synchronous reset (from reset module)
 
-
-    // VIA 6522 control lines
-    wire        via_ca1;
-    wire        via_ca2_in;
-    wire        via_ca2_out;
-    wire        via_cb1_in;
-    wire        via_cb1_out;
-    wire        via_cb2_in;
-    wire        via_cb2_out;
-    
-    // Tie unused control lines to safe defaults
-    assign via_ca1 = 1'b0;
-    assign via_ca2_in = 1'b0;
-    assign via_cb1_in = 1'b0;
-    assign via_cb2_in = 1'b0;
-
-    
-
-    // Instantiate Clock Divider (e.g., divide 27 MHz to ~1 MHz)
     clock_divider #(
         .DIVISOR(CLK_DIVISOR)
     ) clk_div_inst (
-        .clk_in(sys_clk),
-        .clk_out(clk)
+        .clk_in  (sys_clk),
+        .clk_out (clk)
     );
 
     reset reset_inst (
-        .clk(clk),
-        .reset_n(rst_n),
-        .reset(reset)
+        .clk     (clk),
+        .reset_n (rst_n),
+        .reset   (reset)
     );
 
-    // 16KB RAM at 16'h0000 - 16'h3FFF
+    // ── CPU bus ───────────────────────────────────────────────────────────────
+    wire [15:0] imem_addr;
+    wire [7:0]  imem_data;
+    wire [15:0] dmem_addr;
+    wire [7:0]  dmem_rd_data;
+    wire [7:0]  dmem_wr_data;
+    wire        dmem_wr_en;
+    wire [15:0] pc;
+    wire [4:0]  flags;
+    wire [3:0]  cpu_sp;
+    wire        cpu_stall;
+    wire        cpu_irq_n;  // active-low to CPU
+
+    // rst_n for CPU: active-low, derived from active-high reset module output
+    wire cpu_rst_n = ~reset;
+
+    cpu u_cpu (
+        .clk          (clk),
+        .rst_n        (cpu_rst_n),
+        .imem_addr    (imem_addr),
+        .imem_data    (imem_data),
+        .dmem_addr    (dmem_addr),
+        .dmem_rd_data (dmem_rd_data),
+        .dmem_wr_data (dmem_wr_data),
+        .dmem_wr_en   (dmem_wr_en),
+        .irq_n        (cpu_irq_n),
+        .pc           (pc),
+        .flags        (flags),
+        .cpu_sp       (cpu_sp),
+        .cpu_stall    (cpu_stall)
+    );
+
+    // ── Chip-select decode ────────────────────────────────────────────────────
+    wire ram_cs  = (dmem_addr[15:14] == 2'b00);     // 0x0000 – 0x3FFF
+    wire uart_cs = (dmem_addr[15:4]  == 12'h500);   // 0x5000 – 0x500F
+    wire via_cs  = (dmem_addr[15:4]  == 12'h600);   // 0x6000 – 0x600F
+    wire rom_cs  = dmem_addr[15];                    // 0x8000 – 0xFFFF
+
+    // Instruction bus: ROM only (all instruction fetches are from ROM)
+    wire imem_rom_cs = imem_addr[15]; // fetches from 0x8000+
+
+    // ── ROM ───────────────────────────────────────────────────────────────────
+    // Two instances: instruction bus and data bus (Harvard architecture).
+    // Port names below match the style of ram.v (uppercase).
+    // If rom.v uses lowercase 'addr'/'data', change ADDR→addr and DO→data.
+    wire [7:0] rom_imem_do;
+    wire [7:0] rom_dmem_do;
+
+    rom rom_imem_inst (
+        .addr (imem_addr),
+        .data (rom_imem_do)
+    );
+
+    rom rom_dmem_inst (
+        .addr (dmem_addr),
+        .data (rom_dmem_do)
+    );
+
+    assign imem_data = rom_imem_do;
+
+    // ── RAM ───────────────────────────────────────────────────────────────────
+    // 16 KB at 0x0000–0x3FFF; ADDR[13:0], CS+WE gating handled inside module.
+    // DO is tri-stated when CS=0, so it can float safely in the read mux.
+    wire [7:0] ram_do;
+
     ram ram_inst (
-        .clk(clk),
-        .ADDR(address[13:0]),
-        .WE(cpu_we),
-        .CS(ram_cs),
-        .DI(cpu_do),
-        .DO(ram_do)
+        .clk  (clk),
+        .ADDR (dmem_addr[13:0]),
+        .WE   (dmem_wr_en),
+        .CS   (ram_cs),
+        .DI   (dmem_wr_data),
+        .DO   (ram_do)
     );
 
-    // 32KB ROM at 16'h8000 - 16'hFFFF
-    rom rom_inst (
-        .ADDR(address[14:0]),
-        .CS(rom_cs),
-        .DO(rom_do)
-    );
+    // ── VIA 6522 ──────────────────────────────────────────────────────────────
+    wire [7:0] via_do;
+    wire       via_irq_n;
 
-    // VIA 6522 at 16'h6000 - 16'h600F
-    // 0x6000: ORB/IRB  - Port B
-    // 0x6001: ORA/IRA  - Port A  
-    // 0x6002: DDRB     - Port B Direction
-    // 0x6003: DDRA     - Port A Direction
-    // 0x6004: T1C-L    - Timer 1 Counter Low
-    // 0x6005: T1C-H    - Timer 1 Counter High
-    // 0x6006: T1L-L    - Timer 1 Latch Low
-    // 0x6007: T1L-H    - Timer 1 Latch High
-    // 0x6008: T2C-L    - Timer 2 Counter Low
-    // 0x6009: T2C-H    - Timer 2 Counter High
-    // 0x600A: SR       - Shift Register
-    // 0x600B: ACR      - Auxiliary Control
-    // 0x600C: PCR      - Peripheral Control
-    // 0x600D: IFR      - Interrupt Flag Register
-    // 0x600E: IER      - Interrupt Enable Register
-    // 0x600F: ORA/IRA  - Port A (no handshake)
+    // Handshake lines — unused, tied to safe defaults
+    wire via_ca2_out;
+    wire via_cb1_out;
+    wire via_cb2_out;
+
     via via_inst (
-        .phi2(clk),
-        .rst_n(~reset),
-        .cs1(via_cs),
-        .cs2_n(1'b0),          // cs2_n tied low (chip select active)
-        .rw(~cpu_we),          // VIA uses RW (1=read, 0=write), opposite of WE
-        .rs(address[3:0]),
-        .data_in(cpu_do),
-        .data_out(via_do),
-        .port_a(PA),
-        .port_b(PB),
-        .ca1(via_ca1),
-        .ca2_in(via_ca2_in),
-        .ca2_out(via_ca2_out),
-        .cb1_in(via_cb1_in),
-        .cb1_out(via_cb1_out),
-        .cb2_in(via_cb2_in),
-        .cb2_out(via_cb2_out),
-        .irq_n(via_irq_n)
+        .phi2      (clk),
+        .rst_n     (cpu_rst_n),
+        .cs1       (via_cs),
+        .cs2_n     (1'b0),
+        .rw        (~dmem_wr_en),
+        .rs        (dmem_addr[3:0]),
+        .data_in   (dmem_wr_data),
+        .data_out  (via_do),
+        .port_a    (PA),
+        .port_b    (PB),
+        .ca1       (1'b0),
+        .ca2_in    (1'b0),
+        .ca2_out   (via_ca2_out),
+        .cb1_in    (1'b0),
+        .cb1_out   (via_cb1_out),
+        .cb2_in    (1'b0),
+        .cb2_out   (via_cb2_out),
+        .irq_n     (via_irq_n)
     );
 
-    // UART at 16'h5000 - 16'h5003
+    // ── ACIA 6551 ─────────────────────────────────────────────────────────────
+    wire [7:0] uart_do;
+    wire       uart_irq_n;
+
     acia #(
         .XTLI_FREQ(SYS_CLK_HZ)
     ) uart_inst (
-        .RESET(~reset),
-        .PHI2(clk),
-        .CS(~uart_cs),
-        .RWN(~cpu_we),
-        .RS(address[1:0]),
-        .DATAIN(cpu_do),
-        .DATAOUT(uart_do),
-        .XTLI(sys_clk),// Use the raw oscillator for accurate baud generation
-        .RTSB(uartRts),
-        .CTSB(1'b0), // Tie CTS low if hardware flow control is unused
-        .DTRB(), // Not used
-        .RXD(uartRx),
-        .TXD(uartTx),
-        .IRQn(uart_irq_n)
+        .RESET   (~reset),      // ACIA reset is active-high; invert reset module output
+        .PHI2    (clk),
+        .CS      (uart_cs),     // active-high chip select
+        .RWN     (~dmem_wr_en), // 1=read, 0=write
+        .RS      (dmem_addr[1:0]),
+        .DATAIN  (dmem_wr_data),
+        .DATAOUT (uart_do),
+        .XTLI    (sys_clk),     // raw oscillator for accurate baud generation
+        .RTSB    (uartRts),
+        .CTSB    (uartCts),     // honour CTS from host; was incorrectly tied low
+        .DTRB    (),
+        .RXD     (uartRx),
+        .TXD     (uartTx),
+        .IRQn    (uart_irq_n)
     );
 
- hdmi_text_video_compact video (
-    .clk_cpu(clk),
-    .reset(reset),
-    .cs(video_cs),
-    .we(cpu_we),
-    .addr(address[10:0]),  // Only 11 bits now
-    .data_in(cpu_do),
-    .data_out(video_do),
-    
-    .clk_sys(sys_clk),
-    
-    .tmds_data_p(hdmiTmdsData_p),
-    .tmds_data_n(hdmiTmdsData_n),
-    .tmds_clk_p(hdmiTmdsClk_p),
-    .tmds_clk_n(hdmiTmdsClk_n)
-);
+    // ── Data read mux ─────────────────────────────────────────────────────────
+    assign dmem_rd_data =
+        ram_cs  ? ram_do   :
+        uart_cs ? uart_do  :
+        via_cs  ? via_do   :
+                  rom_dmem_do;  // ROM covers everything else including vectors
 
-
-    // Note: Tri-state logic is now handled inside via6522 module
-    // PA and PB are connected directly as inout ports
-
-    // CPU Interrupt ORing
-    assign cpu_irq    = ~via_irq_n | ~uart_irq_n; // CPU input is active high
-
-    // CPU DIN MU X
-    assign ram_cs     = (address[15:14] == 2'b00);      // 0x0000 - 0x3FFF
-    assign uart_cs    = (address[15:4]  == 12'h500);    // 0x5000 - 0x500F
-    assign via_cs     = (address[15:4]  == 12'h600);    // 0x6000 - 0x600F
-    assign video_cs   = (address[15:4]  == 12'h700);    // 0x7000 - 0x7FFF
-    assign rom_cs     = address[15];                    // 0x8000 - 0xFFFF
-
-    assign cpu_di     =
-        rom_cs   ? rom_do   :
-        ram_cs   ? ram_do   :
-        via_cs   ? via_do   :
-        video_cs ? video_do :
-        uart_cs  ? uart_do  : 8'hXX;
-    
-        // "When using external asynchronous memory, you should register the "AD" signals"
-    // Also register uart_rx_in to break long paths and resample UART input
-    always @(posedge clk) begin
-        address    <= address_unregistered;
-    end
+    // ── IRQ aggregator ────────────────────────────────────────────────────────
+    // Both VIA and ACIA produce active-low IRQ; wire-AND gives combined active-low
+    assign cpu_irq_n = via_irq_n & uart_irq_n;
 
 endmodule
+
 `default_nettype wire

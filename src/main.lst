@@ -1,0 +1,252 @@
+; TMEPT Assembler listing
+; Source: src/main.asm
+
+; Symbols:
+;   ACIA_CMD                 = 0x5002  (20482)
+;   ACIA_CMD_VAL             = 0x000B  (11)
+;   ACIA_CTRL                = 0x5003  (20483)
+;   ACIA_CTRL_VAL            = 0x004F  (79)
+;   ACIA_DATA                = 0x5000  (20480)
+;   ACIA_RDRF                = 0x0008  (8)
+;   ACIA_RST                 = 0x5001  (20481)
+;   ACIA_STATUS              = 0x5002  (20482)
+;   ACIA_TDRE                = 0x0010  (16)
+;   BLINK_CTR                = 0x8000  (32768)
+;   LAST_BLINK               = 0x8001  (32769)
+;   T1_HI                    = 0x00FB  (251)
+;   T1_LO                    = 0x002C  (44)
+;   VIA_ACR                  = 0x600B  (24587)
+;   VIA_ACR_T1FR             = 0x0040  (64)
+;   VIA_DDRA                 = 0x6003  (24579)
+;   VIA_DDRB                 = 0x6002  (24578)
+;   VIA_IER                  = 0x600E  (24590)
+;   VIA_IER_SET              = 0x0080  (128)
+;   VIA_IFR                  = 0x600D  (24589)
+;   VIA_IRQ_T1               = 0x0040  (64)
+;   VIA_ORA                  = 0x6001  (24577)
+;   VIA_ORB                  = 0x6000  (24576)
+;   VIA_T1CH                 = 0x6005  (24581)
+;   VIA_T1CL                 = 0x6004  (24580)
+;   VIA_T1LH                 = 0x6007  (24583)
+;   VIA_T1LL                 = 0x6006  (24582)
+;   banner                   = 0x0200  (512)
+;   banner_loop              = 0x00D9  (217)
+;   irq_done                 = 0x0107  (263)
+;   irq_handler              = 0x00C0  (192)
+;   main                     = 0x0000  (0)
+;   main_loop                = 0x0134  (308)
+;   tx_poll                  = 0x0082  (130)
+;   uart_tx_char             = 0x0080  (128)
+
+  Addr  Bytes         Source
+------------------------------------------------------------------------
+  FFFA  C0 00         .word irq_handler
+  FFFC  00 00         .word main
+  0000                
+  0000  2E 50 01      LMAR  ACIA_RST
+  0003  08 04 11 00   XOR   R1, R1, R1
+  0006  31 04         STOR  R1
+  0008  2E 50 03      LMAR  ACIA_CTRL
+  000B  08 04 11 00   XOR   R1, R1, R1
+  000E  00 84 4F 00   ADD   R1, ACIA_CTRL_VAL
+  0011  31 04         STOR  R1
+  0013  2E 50 02      LMAR  ACIA_CMD
+  0016  08 04 11 00   XOR   R1, R1, R1
+  0019  00 84 0B 00   ADD   R1, ACIA_CMD_VAL
+  001C  31 04         STOR  R1
+  001E  2E 60 03      LMAR  VIA_DDRA
+  0021  08 04 11 00   XOR   R1, R1, R1
+  0024  00 84 F7 00   ADD   R1, $F7
+  0027  31 04         STOR  R1
+  0029  2E 60 01      LMAR  VIA_ORA
+  002C  08 04 11 00   XOR   R1, R1, R1
+  002F  00 84 01 00   ADD   R1, $01
+  0032  31 04         STOR  R1
+  0034  2E 60 02      LMAR  VIA_DDRB
+  0037  08 04 11 00   XOR   R1, R1, R1
+  003A  00 84 FF 00   ADD   R1, $FF
+  003D  31 04         STOR  R1
+  003F  2E 60 00      LMAR  VIA_ORB
+  0042  08 04 11 00   XOR   R1, R1, R1
+  0045  31 04         STOR  R1
+  0047  2E 60 0B      LMAR  VIA_ACR
+  004A  08 04 11 00   XOR   R1, R1, R1
+  004D  00 84 40 00   ADD   R1, VIA_ACR_T1FR
+  0050  31 04         STOR  R1
+  0052  2E 60 06      LMAR  VIA_T1LL
+  0055  08 04 11 00   XOR   R1, R1, R1
+  0058  00 84 2C 00   ADD   R1, T1_LO
+  005B  31 04         STOR  R1
+  005D  2E 60 07      LMAR  VIA_T1LH
+  0060  08 04 11 00   XOR   R1, R1, R1
+  0063  00 84 FB 00   ADD   R1, T1_HI
+  0066  31 04         STOR  R1
+  0068  2E 60 05      LMAR  VIA_T1CH
+  006B  08 04 11 00   XOR   R1, R1, R1
+  006E  00 84 FB 00   ADD   R1, T1_HI
+  0071  31 04         STOR  R1
+  0073  2E 60 0E      LMAR  VIA_IER
+  0076  08 04 11 00   XOR   R1, R1, R1
+  0079  00 84 C0 00   ADD   R1, VIA_IER_SET | VIA_IRQ_T1
+  007C  31 04         STOR  R1
+  007E  2E 80 00      LMAR  BLINK_CTR
+  0081  08 04 11 00   XOR   R1, R1, R1
+  0084  31 04         STOR  R1
+  0086  2E 80 01      LMAR  LAST_BLINK
+  0089  31 04         STOR  R1
+  008B  08 30 CC 00   XOR   R12, R12, R12
+  008E  00 B0 00 00   ADD   R12, lo(banner)
+  0091  08 3C FF 00   XOR   R15, R15, R15
+  0094  00 BC 02 00   ADD   R15, hi(banner)
+  0097  0B 7C FF 00   SOL   R15, R15
+  009A  0B 7C FF 00   SOL   R15, R15
+  009D  0B 7C FF 00   SOL   R15, R15
+  00A0  0B 7C FF 00   SOL   R15, R15
+  00A3  0B 7C FF 00   SOL   R15, R15
+  00A6  0B 7C FF 00   SOL   R15, R15
+  00A9  0B 7C FF 00   SOL   R15, R15
+  00AC  0B 7C FF 00   SOL   R15, R15
+  00AF  05 30 CF 00   OR    R12, R12, R15
+  00B2  08 34 DD 00   XOR   R13, R13, R13
+  00B5  00 B4 80 00   ADD   R13, lo(uart_tx_char)
+  00B8  08 3C FF 00   XOR   R15, R15, R15
+  00BB  00 BC 00 00   ADD   R15, hi(uart_tx_char)
+  00BE  0B 7C FF 00   SOL   R15, R15
+  00C1  0B 7C FF 00   SOL   R15, R15
+  00C4  0B 7C FF 00   SOL   R15, R15
+  00C7  0B 7C FF 00   SOL   R15, R15
+  00CA  0B 7C FF 00   SOL   R15, R15
+  00CD  0B 7C FF 00   SOL   R15, R15
+  00D0  0B 7C FF 00   SOL   R15, R15
+  00D3  0B 7C FF 00   SOL   R15, R15
+  00D6  05 34 DF 00   OR    R13, R13, R15
+  00D9                
+  00D9  2F 30         SMAR  R12
+  00DB  30 04         LOAD  R1
+  00DD  08 38 EE 00   XOR   R14, R14, R14
+  00E0  00 B8 34 00   ADD   R14, lo(main_loop)
+  00E3  08 3C FF 00   XOR   R15, R15, R15
+  00E6  00 BC 01 00   ADD   R15, hi(main_loop)
+  00E9  0B 7C FF 00   SOL   R15, R15
+  00EC  0B 7C FF 00   SOL   R15, R15
+  00EF  0B 7C FF 00   SOL   R15, R15
+  00F2  0B 7C FF 00   SOL   R15, R15
+  00F5  0B 7C FF 00   SOL   R15, R15
+  00F8  0B 7C FF 00   SOL   R15, R15
+  00FB  0B 7C FF 00   SOL   R15, R15
+  00FE  0B 7C FF 00   SOL   R15, R15
+  0101  05 38 EF 00   OR    R14, R14, R15
+  0104  27 38         JMZ   R14
+  0106  3D 34         CALL  R13
+  0108  00 B0 01 00   ADD   R12, 1
+  010B  08 38 EE 00   XOR   R14, R14, R14
+  010E  00 B8 D9 00   ADD   R14, lo(banner_loop)
+  0111  08 3C FF 00   XOR   R15, R15, R15
+  0114  00 BC 00 00   ADD   R15, hi(banner_loop)
+  0117  0B 7C FF 00   SOL   R15, R15
+  011A  0B 7C FF 00   SOL   R15, R15
+  011D  0B 7C FF 00   SOL   R15, R15
+  0120  0B 7C FF 00   SOL   R15, R15
+  0123  0B 7C FF 00   SOL   R15, R15
+  0126  0B 7C FF 00   SOL   R15, R15
+  0129  0B 7C FF 00   SOL   R15, R15
+  012C  0B 7C FF 00   SOL   R15, R15
+  012F  05 38 EF 00   OR    R14, R14, R15
+  0132  26 38         JMP   R14
+  0134                
+  0134  2E 80 00      LMAR  BLINK_CTR
+  0137  30 08         LOAD  R2
+  0139  2E 80 01      LMAR  LAST_BLINK
+  013C  30 0C         LOAD  R3
+  013E  09 48 23 00   CMP   R2, R3
+  0141  08 20 88 00   XOR   R8, R8, R8
+  0144  00 A0 34 00   ADD   R8, lo(main_loop)
+  0147  08 3C FF 00   XOR   R15, R15, R15
+  014A  00 BC 01 00   ADD   R15, hi(main_loop)
+  014D  0B 7C FF 00   SOL   R15, R15
+  0150  0B 7C FF 00   SOL   R15, R15
+  0153  0B 7C FF 00   SOL   R15, R15
+  0156  0B 7C FF 00   SOL   R15, R15
+  0159  0B 7C FF 00   SOL   R15, R15
+  015C  0B 7C FF 00   SOL   R15, R15
+  015F  0B 7C FF 00   SOL   R15, R15
+  0162  0B 7C FF 00   SOL   R15, R15
+  0165  05 20 8F 00   OR    R8, R8, R15
+  0168  27 20         JMZ   R8
+  016A  2E 80 01      LMAR  LAST_BLINK
+  016D  31 08         STOR  R2
+  016F  2E 60 00      LMAR  VIA_ORB
+  0172  31 08         STOR  R2
+  0174  08 20 88 00   XOR   R8, R8, R8
+  0177  00 A0 34 00   ADD   R8, lo(main_loop)
+  017A  08 3C FF 00   XOR   R15, R15, R15
+  017D  00 BC 01 00   ADD   R15, hi(main_loop)
+  0180  0B 7C FF 00   SOL   R15, R15
+  0183  0B 7C FF 00   SOL   R15, R15
+  0186  0B 7C FF 00   SOL   R15, R15
+  0189  0B 7C FF 00   SOL   R15, R15
+  018C  0B 7C FF 00   SOL   R15, R15
+  018F  0B 7C FF 00   SOL   R15, R15
+  0192  0B 7C FF 00   SOL   R15, R15
+  0195  0B 7C FF 00   SOL   R15, R15
+  0198  05 20 8F 00   OR    R8, R8, R15
+  019B  26 20         JMP   R8
+  0080                
+  0080  3B 08         PUSH  R2
+  0082                
+  0082  2E 50 02      LMAR  ACIA_STATUS
+  0085  30 08         LOAD  R2
+  0087  04 88 10 00   AND   R2, ACIA_TDRE
+  008A  08 0C 33 00   XOR   R3, R3, R3
+  008D  00 8C 82 00   ADD   R3, lo(tx_poll)
+  0090  08 3C FF 00   XOR   R15, R15, R15
+  0093  00 BC 00 00   ADD   R15, hi(tx_poll)
+  0096  0B 7C FF 00   SOL   R15, R15
+  0099  0B 7C FF 00   SOL   R15, R15
+  009C  0B 7C FF 00   SOL   R15, R15
+  009F  0B 7C FF 00   SOL   R15, R15
+  00A2  0B 7C FF 00   SOL   R15, R15
+  00A5  0B 7C FF 00   SOL   R15, R15
+  00A8  0B 7C FF 00   SOL   R15, R15
+  00AB  0B 7C FF 00   SOL   R15, R15
+  00AE  05 0C 3F 00   OR    R3, R3, R15
+  00B1  27 0C         JMZ   R3
+  00B3  2E 50 00      LMAR  ACIA_DATA
+  00B6  31 04         STOR  R1
+  00B8  3C 08         POP   R2
+  00BA  3E 00         RET
+  00C0                
+  00C0  3B 04         PUSH  R1
+  00C2  3B 08         PUSH  R2
+  00C4  2E 60 0D      LMAR  VIA_IFR
+  00C7  30 04         LOAD  R1
+  00C9  2D 48 21 00   MOV   R2, R1
+  00CC  04 88 40 00   AND   R2, VIA_IRQ_T1
+  00CF  08 0C 33 00   XOR   R3, R3, R3
+  00D2  00 8C 07 00   ADD   R3, lo(irq_done)
+  00D5  08 3C FF 00   XOR   R15, R15, R15
+  00D8  00 BC 01 00   ADD   R15, hi(irq_done)
+  00DB  0B 7C FF 00   SOL   R15, R15
+  00DE  0B 7C FF 00   SOL   R15, R15
+  00E1  0B 7C FF 00   SOL   R15, R15
+  00E4  0B 7C FF 00   SOL   R15, R15
+  00E7  0B 7C FF 00   SOL   R15, R15
+  00EA  0B 7C FF 00   SOL   R15, R15
+  00ED  0B 7C FF 00   SOL   R15, R15
+  00F0  0B 7C FF 00   SOL   R15, R15
+  00F3  05 0C 3F 00   OR    R3, R3, R15
+  00F6  27 0C         JMZ   R3
+  00F8  2E 60 04      LMAR  VIA_T1CL
+  00FB  30 08         LOAD  R2
+  00FD  2E 80 00      LMAR  BLINK_CTR
+  0100  30 04         LOAD  R1
+  0102  00 84 01 00   ADD   R1, 1
+  0105  31 04         STOR  R1
+  0107                
+  0107  3C 08         POP   R2
+  0109  3C 04         POP   R1
+  010B  3E 00         RET
+  0200                
+  0200  54 4D 45 50 54 20 43 50  .byte  $54, $4D, $45, $50, $54, $20, $43, $50
+  0208  55 20 72 65 61 64 79 2E  .byte  $55, $20, $72, $65, $61, $64, $79, $2E
+  0210  0D 0A 00      .byte  $0D, $0A, $00

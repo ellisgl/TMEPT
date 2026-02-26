@@ -4,7 +4,7 @@
 #
 # Targets
 #   make all         Assemble default ROM then build bitstream (synth + pnr + fs)
-#   make rom         Assemble src/main.asm → rom_init.bin
+#   make rom         Assemble src/main.asm → rom_init.hex
 #   make synth       Synthesise with Yosys  → tmept.json
 #   make pnr         Place & route          → tmept_pnr.json
 #   make fs          Pack bitstream         → tmept.fs
@@ -64,7 +64,7 @@ RTL_FILES += 6522-VIA/rtl/via.v
 # Default ROM source
 src     = src/main.asm
 ASM     = python3 tools/tmept_asm.py
-ROM_BIN = rom_init.bin
+ROM_BIN = rom_init.hex
 
 # Simulation testbench
 TB = tb/cpu_tb.v

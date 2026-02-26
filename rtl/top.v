@@ -15,21 +15,7 @@
 //   Default: 27 MHz / 14 ≈ 1.929 MHz
 // ============================================================================
 
-`include "6522-VIA/rtl/via.v"
-`include "6551-ACIA/rtl/acia.v"
-`include "rtl/clock_divider.v"
-`include "rtl/reset.v"
-`include "rtl/ram.v"
-`include "rtl/rom.v"
-`include "rtl/reg_file.v"
-`include "rtl/fetch.v"
-`include "rtl/decode.v"
-`include "rtl/execute.v"
-`include "rtl/alu_arith.v"
-`include "rtl/alu_bitmanip.v"
-`include "rtl/alu_shift.v"
-`include "rtl/alu.v"
-`include "rtl/cpu.v"
+// All RTL files are passed explicitly by the Makefile — no `include needed here.
 
 module top #(
     parameter integer SYS_CLK_HZ  = 27_000_000,

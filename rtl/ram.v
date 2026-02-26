@@ -4,7 +4,7 @@
 // Simple Synchronous RAM Module
 // 16k x 8-bit RAM with synchronous write and asynchronous read.
 ////////////////////////////////////////////////////////////////////////////////
-module RAM (
+module ram (
     input  wire        clk,
     input  wire [13:0] ADDR,
     input  wire        WE,   // active high

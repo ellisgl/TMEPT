@@ -84,12 +84,6 @@
 `include "rtl/cpu.v"
 `include "rtl/rom.v"
 `include "rtl/ram.v"
-// Submodule includes — paths assume git submodules checked out alongside rtl/
-`include "6551-ACIA/rtl/acia.v"
-`include "6551-ACIA/rtl/acia_rx.v"
-`include "6551-ACIA/rtl/acia_tx.v"
-`include "6551-ACIA/rtl/acia_brgen.v"
-`include "6522-VIA/rtl/via.v"
 
 module top (
     input  wire        sys_clk,      // 27 MHz crystal
@@ -218,7 +212,7 @@ module top (
     wire [7:0] ram_q;
     wire       ram_we = dmem_wr_en & ram_sel_real;
 
-    RAM u_ram (
+    ram u_ram (
         .clk     (cpu_clk),
         .ADDR    (dmem_addr[13:0]),
         .WE      (ram_we),
@@ -282,8 +276,8 @@ module top (
     wire via_cb1 = 1'b0;
     wire via_cb2_out;
 
-    via u_via (                           // VERIFY: module name may be "via6522" or "m6522"
-        .clk     (cpu_clk),               // VERIFY: "clk", "phi2", "clk_in"
+    VIA u_via (                           // VERIFY: module name may be "via6522" or "m6522"
+        .phi2     (cpu_clk),               // VERIFY: "clk", "phi2", "clk_in"
         .reset   (~rst_n),                // VERIFY: active-high or active-low?
         .cs1     (via_sel),               // VERIFY: "cs1" active-high
         .cs2_n   (1'b0),                  // VERIFY: "cs2_n" active-low, tie low to always enable
